@@ -8,7 +8,14 @@ on:
 
 jobs:
   build:
+    name: Build (${{ matrix.targetPlatform }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        targetPlatform:
+          - StandaloneWindows64
+          - StandaloneOSX
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,11 +29,11 @@ jobs:
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
-          targetPlatform: StandaloneWindows64
+          targetPlatform: ${{ matrix.targetPlatform }}
           unityVersion: 2021.3.45f1
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ChroMapper-Windows
-          path: build/StandaloneWindows64
+          name: ChroMapper-${{ matrix.targetPlatform }}
+          path: build/${{ matrix.targetPlatform }}
