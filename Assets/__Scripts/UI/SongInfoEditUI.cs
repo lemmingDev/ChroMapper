@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using Beatmap.Info;
+using ChroMapper.BpmDetection;
 using QuestDumper;
 using SFB;
 using SimpleJSON;
@@ -88,6 +89,11 @@ public class SongInfoEditUI : MenuBase
     private Coroutine reloadSongDataCoroutine;
     public Action TempSongLoadedEvent;
 
+    private bool _loadingFromSong;
+    private bool _settingBpmProgrammatically;
+    private bool _userEditedBpm;
+    private bool _detectingBpm;
+
     private BaseInfo Info => BeatSaberSongContainer.Instance.Info;
     
     private GameObject ContributorWrapper => contributorController.transform.parent.gameObject;
@@ -112,6 +118,32 @@ public class SongInfoEditUI : MenuBase
         // Make sure the contributor panel has been initialised
         ContributorWrapper.SetActive(true);
 
+        // Track manual BPM edits so auto-detection never clobbers user input.
+        bpmField.onValueChanged.AddListener(_ =>
+        {
+            if (!_loadingFromSong && !_settingBpmProgrammatically)
+                _userEditedBpm = true;
+        });
+
+        var audioValidator = audioPath.GetComponent<InputBoxFileValidator>();
+        if (audioValidator != null)
+        {
+            audioValidator.FileChanged += path =>
+            {
+                if (_loadingFromSong) return;
+                _userEditedBpm = false;
+                TryDetectBpmFromAudio(path);
+            };
+        }
+
+        audioPath.onValueChanged.AddListener(path =>
+        {
+            if (_loadingFromSong) return;
+            _userEditedBpm = false;
+            TryDetectBpmFromAudio(path);
+        });
+
+        _loadingFromSong = true;
         LoadFromSong();
     }
 
@@ -286,6 +318,11 @@ public class SongInfoEditUI : MenuBase
         contributorController.UndoChanges();
         characteristicCustomPropertyController.UndoChanges();
 
+        // Existing maps already have an authoritative BPM, so don't overwrite it automatically.
+        _loadingFromSong = false;
+        if (File.Exists(Path.Combine(Info.Directory, "Info.dat")))
+            _userEditedBpm = true;
+
         ReloadAudio();
     }
 
@@ -316,6 +353,48 @@ public class SongInfoEditUI : MenuBase
     ///     Start the LoadAudio Coroutine
     /// </summary>
     public void ReloadAudio() => StartCoroutine(LoadAudio());
+
+    private void TryDetectBpmFromAudio(string path)
+    {
+        if (_detectingBpm || _userEditedBpm) return;
+
+        if (string.IsNullOrWhiteSpace(path) || Info == null || string.IsNullOrEmpty(Info.Directory)) return;
+
+        var fullPath = Path.Combine(Info.Directory, path);
+        if (!File.Exists(fullPath)) return;
+
+        try
+        {
+            if (!FileContentValidationHelper.IsSupportedAudioFormat(fullPath)) return;
+        }
+        catch
+        {
+            // Ignore validation helper failures and let LoadAudio handle them.
+        }
+
+        _detectingBpm = true;
+        StartCoroutine(LoadAndDetectBpm(path));
+    }
+
+    private IEnumerator LoadAndDetectBpm(string overridePath)
+    {
+        AudioClip detectedClip = null;
+        var offsetValue = 0f;
+        float.TryParse(offset.text, NumberStyles.Float, CultureInfo.InvariantCulture, out offsetValue);
+
+        yield return BeatSaberSongExtensions.LoadAudio(Info, clip => detectedClip = clip, offsetValue, overridePath);
+
+        _detectingBpm = false;
+
+        if (detectedClip == null || _userEditedBpm) yield break;
+
+        var detectedBpm = BpmDetector.Detect(detectedClip);
+        if (detectedBpm <= 0f) yield break;
+
+        _settingBpmProgrammatically = true;
+        bpmField.text = detectedBpm.ToString("0.###", CultureInfo.InvariantCulture);
+        _settingBpmProgrammatically = false;
+    }
 
     /// <summary>
     ///     Try and load the song, this is used for the song preview as well as later

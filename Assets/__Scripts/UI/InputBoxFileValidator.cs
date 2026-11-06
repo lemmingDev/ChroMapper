@@ -9,6 +9,10 @@ using UnityEngine.UI;
 
 public class InputBoxFileValidator : MonoBehaviour
 {
+    /// <summary>
+    ///     Fired whenever the validated file path changes through the browser dialog.
+    /// </summary>
+    public event Action<string> FileChanged;
     [SerializeField] private GameObject inputMask;
     [SerializeField] private Image validationImg;
     [SerializeField] private TMP_InputField input;
@@ -160,6 +164,7 @@ public class InputBoxFileValidator : MonoBehaviour
                         File.Copy(fullFile, Path.Combine(songDir, file.Name));
                         input.text = file.Name;
                         OnUpdate();
+                        FileChanged?.Invoke(input.text);
                     }
                 }, PersistentUI.DialogBoxPresetType.YesNo);
             }
@@ -167,6 +172,7 @@ public class InputBoxFileValidator : MonoBehaviour
             {
                 input.text = fullFile.Substring(fullDirectory.Length + 1);
                 OnUpdate();
+                FileChanged?.Invoke(input.text);
             }
         }
     }
@@ -190,6 +196,7 @@ public class InputBoxFileValidator : MonoBehaviour
             {
                 input.text = fileName;
                 OnUpdate();
+                FileChanged?.Invoke(input.text);
             }
         }, PersistentUI.DialogBoxPresetType.YesNo);
 
